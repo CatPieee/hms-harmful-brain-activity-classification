@@ -14,7 +14,7 @@ try:
 
     # 在刚才成功的脚本后面添加
     api.competition_download_files('hms-harmful-brain-activity-classification')
-    print("下载指令已发送")
+    print("✅ Competition files downloaded successfully")
     
 except Exception as e:
     print(f"❌ Authentication failed: {str(e)}")
