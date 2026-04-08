@@ -48,6 +48,7 @@ def load_spec_png(png_path: str, target_h: int = 600, target_w: int = 400) -> np
     if img.size[0] != target_w:
         img = img.resize((target_w, img.size[1]))
     arr = (np.asarray(img).astype(np.float32) / 255.0)  # H,W
+    arr = np.nan_to_num(arr, nan=0.0)
     arr = _pad_crop_h(arr, target_h)
     return arr  # H,W
 
@@ -60,6 +61,8 @@ def load_eeg_from_parquet(parquet_path: str) -> np.ndarray:
     # Shape: (T, C). Return (C, T)
     if data.ndim != 2:
         raise ValueError(f"Unexpected EEG parquet shape: {data.shape}")
+    # Handle NaNs which are common in sensor disconnects
+    data = np.nan_to_num(data, nan=0.0)
     return data.T
 
 
@@ -156,6 +159,7 @@ class HMSDataset:
 
     def _get_target(self, row: pd.Series) -> np.ndarray:
         votes = row[self.vote_cols].to_numpy(dtype=np.float32)
+        votes = np.nan_to_num(votes, nan=0.0)  # Robust against NaNs in train.csv
         s = votes.sum()
         if s <= 0:
             return np.ones_like(votes) / len(votes)
