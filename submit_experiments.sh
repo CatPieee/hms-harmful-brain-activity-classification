@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --mem=4G                     # 运行多个实验建议分配更多内存 (尤其 Batch Size 128)
-#SBATCH --cpus-per-task=8             # 增加 CPU 以加速多轮实验的数据加载
+#SBATCH --cpus-per-task=2             # 减少 CPU 核心以适应 4G 内存
 #SBATCH --time=24:00:00               # 运行所有消融实验可能需要较长时间
 #SBATCH --output=logs/course_exp_%j.out
 #SBATCH --error=logs/course_exp_%j.err
@@ -53,14 +53,14 @@ if [ ! -d "$PROJECT_ROOT/src/data" ] && [ ! -f "$PROJECT_ROOT/src/data.py" ]; th
 fi
 
 # 2. 运行课程要求的全系列实验
-# 包括: Baseline, Loss 对比, Learning Rate Sweep, Batch Size Sweep, First 100 预测可视化
+# 由于 4G 内存限制，num_workers 设为 2 以节省系统内存开销
 python scripts/run_course_experiments.py \
     --data_dir "$DATA_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --model both \
     --epochs 10 \
     --val_size 0.2 \
-    --num_workers 8 \
+    --num_workers 2 \
     --pretrained_spec
 
 echo "========================================"

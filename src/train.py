@@ -119,6 +119,12 @@ def evaluate(model: nn.Module, loader, device: torch.device, criterion: nn.Modul
     for batch in loader:
         logits, target, _spec = forward_model(model, batch, device, model_name)
         loss = criterion(logits, target)
+
+        # Skip validation batches with NaN/Inf values to ensure clean metrics
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"[WARNING] Validation NaN detected, skipping batch.")
+            continue
+
         kld = kl_divergence_from_logits(logits, target)
         acc = accuracy_from_logits(logits, target)
         bs = target.size(0)
