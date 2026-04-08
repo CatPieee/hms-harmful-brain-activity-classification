@@ -2,5 +2,6 @@ __pycache__/
 .venv/
 *.pyc
 outputs/
-data/
+/data/
+!/src/data/
 .DS_Store
