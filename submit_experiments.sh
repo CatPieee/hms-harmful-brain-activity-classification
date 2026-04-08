@@ -4,7 +4,7 @@
 #SBATCH --qos=qos-normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH --mem=32G                     # 运行多个实验建议分配更多内存
+#SBATCH --mem=4G                     # 运行多个实验建议分配更多内存
 #SBATCH --cpus-per-task=8             # 增加 CPU 以加速多轮实验的数据加载
 #SBATCH --time=24:00:00               # 运行所有消融实验可能需要较长时间
 #SBATCH --output=logs/course_exp_%j.out

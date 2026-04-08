@@ -4,7 +4,7 @@
 #SBATCH --qos=qos-normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH --mem=16G                     # 增加内存，4G 对训练太小了
+#SBATCH --mem=4G                     # 增加内存，4G 对训练太小了
 #SBATCH --cpus-per-task=4             # 增加 CPU 核心以加速数据加载 (num_workers)
 #SBATCH --time=12:00:00                
 #SBATCH --output=logs/train_%j.out
