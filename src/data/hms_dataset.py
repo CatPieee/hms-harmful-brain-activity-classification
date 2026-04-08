@@ -80,27 +80,33 @@ def crop_or_pad_1d(x: np.ndarray, target_len: int, train: bool = True) -> np.nda
     return x[:, start:start + target_len]
 
 
-def build_splits(df: pd.DataFrame, n_folds: int = 5, fold: int = 0, group_col: Optional[str] = None) -> Tuple[np.ndarray, np.ndarray]:
-    if group_col is None:
-        if "patient_id" in df.columns:
-            group_col = "patient_id"
-        elif "eeg_id" in df.columns:
-            group_col = "eeg_id"
-        else:
-            # fallback: treat each row as its own group
-            group_col = None
+def build_splits(df: pd.DataFrame, val_size: float = 0.2, seed: int = 42) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Splits the dataframe into train and validation sets (default 80/20).
+    Ensures patient-level separation to prevent data leakage.
+    """
+    group_col = None
+    if "patient_id" in df.columns:
+        group_col = "patient_id"
+    elif "eeg_id" in df.columns:
+        group_col = "eeg_id"
 
     if group_col is None:
         idx = np.arange(len(df))
-        # simple 80/20 split
-        split = int(0.8 * len(idx))
+        np.random.seed(seed)
+        np.random.shuffle(idx)
+        split = int((1 - val_size) * len(idx))
         return idx[:split], idx[split:]
 
-    gkf = GroupKFold(n_splits=n_folds)
+    # Group-aware split using GroupKFold to get a single 80/20 split
+    # (n_splits = 1/val_size)
+    n_splits = int(1.0 / val_size)
+    gkf = GroupKFold(n_splits=n_splits)
     groups = df[group_col].values
-    all_splits = list(gkf.split(df, groups=groups))
-    tr_idx, va_idx = all_splits[fold]
-    return tr_idx, va_idx
+    
+    # Just take the first split
+    train_idx, val_idx = next(gkf.split(df, groups=groups))
+    return train_idx, val_idx
 
 
 @dataclass

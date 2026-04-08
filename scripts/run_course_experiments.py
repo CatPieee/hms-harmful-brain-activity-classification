@@ -25,8 +25,7 @@ def parse_args():
     p.add_argument("--output_dir", type=str, default="outputs/course_runs")
     p.add_argument("--model", type=str, default="both", choices=["both", "spec", "eeg"])
     p.add_argument("--epochs", type=int, default=10)
-    p.add_argument("--fold", type=int, default=0)
-    p.add_argument("--n_folds", type=int, default=5)
+    p.add_argument("--val_size", type=float, default=0.2)
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--pretrained_spec", action="store_true")
@@ -40,8 +39,7 @@ def common_base(args):
         "--output_dir", args.output_dir,
         "--model", args.model,
         "--epochs", str(args.epochs),
-        "--fold", str(args.fold),
-        "--n_folds", str(args.n_folds),
+        "--val_size", str(args.val_size),
         "--num_workers", str(args.num_workers),
         "--seed", str(args.seed),
     ]

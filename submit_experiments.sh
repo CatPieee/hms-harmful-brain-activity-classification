@@ -59,6 +59,7 @@ python scripts/run_course_experiments.py \
     --output_dir "$OUTPUT_DIR" \
     --model both \
     --epochs 10 \
+    --val_size 0.2 \
     --num_workers 8 \
     --pretrained_spec
 

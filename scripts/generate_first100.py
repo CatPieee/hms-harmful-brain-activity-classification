@@ -25,8 +25,7 @@ def parse_args():
     p.add_argument("--checkpoint", type=str, required=True)
     p.add_argument("--output_dir", type=str, required=True)
     p.add_argument("--model", type=str, default="both", choices=["both", "spec", "eeg"])
-    p.add_argument("--fold", type=int, default=0)
-    p.add_argument("--n_folds", type=int, default=5)
+    p.add_argument("--val_size", type=float, default=0.2)
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--target_h", type=int, default=600)
     p.add_argument("--target_w", type=int, default=400)
@@ -50,7 +49,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     df = pd.read_csv(os.path.join(args.data_dir, "train.csv"))
-    _tr_idx, va_idx = build_splits(df, n_folds=args.n_folds, fold=args.fold)
+    _tr_idx, va_idx = build_splits(df, val_size=args.val_size)
     ds_va = HMSDataset(df, HMSPaths(data_dir=args.data_dir), va_idx, train=False, target_h=args.target_h, target_w=args.target_w, eeg_len=args.eeg_len)
 
     sample = ds_va[0]["eeg"]

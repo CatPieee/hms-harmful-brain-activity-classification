@@ -63,7 +63,7 @@ python -m src.train \
     --epochs 10 \
     --batch_size 16 \
     --lr 1e-3 \
-    --fold 0 \
+    --val_size 0.2 \
     --num_workers 4 \
     --output_dir outputs
 

@@ -63,8 +63,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser("HMS course-ready trainer")
     p.add_argument("--data_dir", type=str, required=True)
     p.add_argument("--model", type=str, default="both", choices=["both", "spec", "eeg"])
-    p.add_argument("--fold", type=int, default=0)
-    p.add_argument("--n_folds", type=int, default=5)
+    p.add_argument("--val_size", type=float, default=0.2)
     p.add_argument("--epochs", type=int, default=10)
     p.add_argument("--batch_size", type=int, default=16)
     p.add_argument("--lr", type=float, default=1e-3)
@@ -144,7 +143,7 @@ def main() -> None:
         raise FileNotFoundError(f"train.csv not found at: {train_csv}")
 
     df = pd.read_csv(train_csv)
-    tr_idx, va_idx = build_splits(df, n_folds=args.n_folds, fold=args.fold)
+    tr_idx, va_idx = build_splits(df, val_size=args.val_size, seed=args.seed)
     paths = HMSPaths(data_dir=args.data_dir)
     ds_tr = HMSDataset(df, paths, tr_idx, train=True, target_h=args.target_h, target_w=args.target_w, eeg_len=args.eeg_len)
     ds_va = HMSDataset(df, paths, va_idx, train=False, target_h=args.target_h, target_w=args.target_w, eeg_len=args.eeg_len)
