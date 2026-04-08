@@ -13,7 +13,7 @@
 # 1. 环境准备
 source .venv/bin/activate
 
-DATA_DIR="data"
+DATA_DIR="data/hms"
 
 echo "========================================"
 echo "预处理开始时间: $(date)"
