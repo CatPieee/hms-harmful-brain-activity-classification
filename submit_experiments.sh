@@ -17,7 +17,16 @@ mkdir -p logs
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
-source "$PROJECT_ROOT/.venv/bin/activate"
+if [ -n "${ENV_ACTIVATE:-}" ]; then
+  source "$ENV_ACTIVATE"
+elif [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
+  source "$PROJECT_ROOT/.venv/bin/activate"
+else
+  echo "[ERROR] 未找到虚拟环境激活脚本。"
+  echo "  - 期望路径: $PROJECT_ROOT/.venv/bin/activate"
+  echo "  - 或者提交前设置: ENV_ACTIVATE=/path/to/activate"
+  exit 2
+fi
 export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
 
 DATA_DIR="${DATA_DIR:-data/hms}"
@@ -27,6 +36,7 @@ echo "========================================"
 echo "课程全自动化实验开始: $(date)"
 echo "数据目录: $DATA_DIR"
 echo "输出目录: $OUTPUT_DIR"
+echo "Python 路径: $(which python)"
 echo "========================================"
 
 # 2. 运行课程要求的全系列实验
