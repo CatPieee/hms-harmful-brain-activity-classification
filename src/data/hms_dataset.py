@@ -166,14 +166,34 @@ class HMSDataset:
 
     def _load_eeg(self, eeg_id: int) -> np.ndarray:
         cache_fp = os.path.join(self.eeg_cache, f"{int(eeg_id)}.npy")
+        x: Optional[np.ndarray] = None
+
         if os.path.exists(cache_fp):
-            x = np.load(cache_fp).astype(np.float32)
-        else:
+            try:
+                # Check if file is empty
+                if os.path.getsize(cache_fp) > 0:
+                    x = np.load(cache_fp).astype(np.float32)
+                else:
+                    # Remove empty file
+                    os.remove(cache_fp)
+            except (EOFError, ValueError, OSError) as e:
+                # Corrupted file, remove it
+                print(f"[Warning] Corrupted cache file detected and removed: {cache_fp}. Error: {e}")
+                if os.path.exists(cache_fp):
+                    os.remove(cache_fp)
+
+        if x is None:
             pq = os.path.join(self.eeg_dir, f"{int(eeg_id)}.parquet")
             if not os.path.exists(pq):
                 raise FileNotFoundError(f"Missing EEG parquet: {pq}")
             x = load_eeg_from_parquet(pq)  # (C,T)
-            np.save(cache_fp, x)
+            # Save valid cache for next time
+            try:
+                np.save(cache_fp, x)
+            except OSError:
+                # If disk full or no permission, just proceed without caching
+                pass
+        
         x = crop_or_pad_1d(x, self.eeg_len, train=self.train)
         if self.normalize_eeg:
             # per-channel zscore
