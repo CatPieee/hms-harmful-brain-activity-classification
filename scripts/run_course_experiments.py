@@ -90,8 +90,7 @@ def main():
         "--checkpoint", os.path.join(args.output_dir, "baseline_kldiv", "best.pt"),
         "--output_dir", os.path.join(args.output_dir, "first100"),
         "--model", args.model,
-        "--fold", str(args.fold),
-        "--n_folds", str(args.n_folds),
+        "--val_size", str(args.val_size),
         "--num_workers", str(args.num_workers),
     ] + (["--pretrained_spec"] if args.pretrained_spec else []))
 

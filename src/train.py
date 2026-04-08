@@ -177,8 +177,12 @@ def main() -> None:
     else:
         scheduler = None
 
-    scaler = torch.cuda.amp.GradScaler(enabled=(args.amp and device.type == "cuda"))
-    run_name = args.run_name or f'{args.model}_{args.loss}_fold{args.fold}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    if hasattr(torch.amp, "GradScaler"):
+        scaler = torch.amp.GradScaler("cuda", enabled=(args.amp and device.type == "cuda"))
+    else:
+        scaler = torch.cuda.amp.GradScaler(enabled=(args.amp and device.type == "cuda"))
+
+    run_name = args.run_name or f'{args.model}_{args.loss}_val{args.val_size}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
     out_dir = os.path.join(args.output_dir, run_name)
     os.makedirs(out_dir, exist_ok=True)
     save_json(vars(args), os.path.join(out_dir, "config.json"))
