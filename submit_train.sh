@@ -10,11 +10,17 @@
 #SBATCH --output=logs/train_%j.out
 #SBATCH --error=logs/train_%j.err
 
-# 1. 环境准备
-source .venv/bin/activate
+set -euo pipefail
 
-# 2. 检查数据路径 (根据您的实际存放位置调整，建议统一使用 data/)
-DATA_DIR="data"
+mkdir -p logs
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+source "$PROJECT_ROOT/.venv/bin/activate"
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
+
+DATA_DIR="${DATA_DIR:-data/hms}"
 
 echo "========================================"
 echo "任务开始时间: $(date)"
@@ -23,8 +29,8 @@ echo "数据目录: $DATA_DIR"
 echo "========================================"
 
 # 3. 执行训练 (以多模态模型为例)
-python src/train.py \
-    --data_dir $DATA_DIR \
+python -m src.train \
+    --data_dir "$DATA_DIR" \
     --model both \
     --loss kldiv \
     --epochs 10 \

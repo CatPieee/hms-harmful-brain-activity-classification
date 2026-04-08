@@ -10,10 +10,17 @@
 #SBATCH --output=logs/course_exp_%j.out
 #SBATCH --error=logs/course_exp_%j.err
 
-# 1. 环境准备
-source .venv/bin/activate
+set -euo pipefail
 
-DATA_DIR="data"
+mkdir -p logs
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+source "$PROJECT_ROOT/.venv/bin/activate"
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
+
+DATA_DIR="${DATA_DIR:-data/hms}"
 OUTPUT_DIR="outputs/course_runs"
 
 echo "========================================"
@@ -25,8 +32,8 @@ echo "========================================"
 # 2. 运行课程要求的全系列实验
 # 包括: Baseline, Loss 对比, Learning Rate Sweep, Batch Size Sweep, First 100 预测可视化
 python scripts/run_course_experiments.py \
-    --data_dir $DATA_DIR \
-    --output_dir $OUTPUT_DIR \
+    --data_dir "$DATA_DIR" \
+    --output_dir "$OUTPUT_DIR" \
     --model both \
     --epochs 10 \
     --num_workers 8 \
