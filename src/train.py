@@ -203,6 +203,14 @@ def main() -> None:
         for step, batch in enumerate(pbar, start=1):
             logits, target, _spec = forward_model(model, batch, device, args.model)
             loss = criterion(logits, target) / max(args.accum, 1)
+
+            # --- Numerical Circuit Breaker ---
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(f"\n[WARNING] NaN/Inf loss detected at step {step}! Skipping this batch.")
+                print(f"Batch eeg_ids: {batch.get('eeg_id', 'unknown')}")
+                optimizer.zero_grad(set_to_none=True)
+                continue
+
             acc = accuracy_from_logits(logits.detach(), target)
 
             scaler.scale(loss).backward()
