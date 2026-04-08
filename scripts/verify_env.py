@@ -1,28 +1,9 @@
-"""
-scripts/verify_env.py
+import importlib
 
-Quick environment verification:
-- Python version
-- torch import
-- CUDA availability
-"""
-
-import platform
-import sys
-
-def main() -> None:
-    print("Python:", sys.version.replace("\n", " "))
-    print("Platform:", platform.platform())
+pkgs = ["numpy", "pandas", "PIL", "sklearn", "torch", "torchvision", "matplotlib", "pyarrow", "tqdm"]
+for name in pkgs:
     try:
-        import torch
-        print("torch:", torch.__version__)
-        print("cuda available:", torch.cuda.is_available())
-        if torch.cuda.is_available():
-            print("cuda device:", torch.cuda.get_device_name(0))
+        importlib.import_module(name)
+        print(f"[OK] {name}")
     except Exception as e:
-        print("ERROR importing torch:", repr(e))
-        print("Fix: install PyTorch from https://pytorch.org/get-started/locally/")
-        raise
-
-if __name__ == "__main__":
-    main()
+        print(f"[FAIL] {name}: {e}")

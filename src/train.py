@@ -1,177 +1,250 @@
-"""
-src/train.py
-Single-run training entry (baseline).
-
-Examples:
-  python -m src.train --synthetic --epochs 5 --out_dir outputs/smoke
-  python -m src.train --data_dir data/hms --epochs 10 --loss kldiv --out_dir outputs/baseline
-"""
-
 from __future__ import annotations
 
 import argparse
 import os
+from datetime import datetime
 from typing import Dict, List, Tuple
 
 import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
 import torch
 import torch.nn as nn
-from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader, Subset
+import torch.optim as optim
 
-from .datasets import (
-    HMSSpectrogramPngDataset,
-    SyntheticSpectrogramDataset,
-    stratified_group_split,
-)
-from .models import SpectrogramResNet
-from .utils import AverageMeter, plot_curves, save_history_csv, set_seed
+from src.data import HMSDataset, HMSPaths, build_splits
+from src.metrics import accuracy_from_logits, kl_divergence_from_logits
+from src.models import MultiModalNet, EEGOnlyNet, SpecOnlyNet
+from src.utils import get_device, plot_training_curves, save_json, seed_everything
 
 
-def accuracy_from_probs(probs: torch.Tensor, target_dist: torch.Tensor) -> float:
-    y_pred = probs.argmax(dim=1)
-    y_true = target_dist.argmax(dim=1)
-    return (y_pred == y_true).float().mean().item()
+class CombinedLoss(nn.Module):
+    def __init__(self, alpha: float = 0.8):
+        super().__init__()
+        self.alpha = float(alpha)
+        self.ce = nn.CrossEntropyLoss()
+
+    def forward(self, logits: torch.Tensor, target_prob: torch.Tensor) -> torch.Tensor:
+        kld = kl_divergence_from_logits(logits, target_prob)
+        hard = torch.argmax(target_prob, dim=1)
+        ce = self.ce(logits, hard)
+        return self.alpha * kld + (1.0 - self.alpha) * ce
 
 
-def build_loss(loss_name: str) -> nn.Module:
+def build_criterion(loss_name: str, alpha: float = 0.8) -> nn.Module:
     if loss_name == "kldiv":
-        return nn.KLDivLoss(reduction="batchmean")
+        class KLDivWrap(nn.Module):
+            def forward(self, logits: torch.Tensor, target_prob: torch.Tensor) -> torch.Tensor:
+                return kl_divergence_from_logits(logits, target_prob)
+        return KLDivWrap()
     if loss_name == "ce":
-        return nn.CrossEntropyLoss()
+        class CEWrap(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.ce = nn.CrossEntropyLoss()
+            def forward(self, logits: torch.Tensor, target_prob: torch.Tensor) -> torch.Tensor:
+                hard = torch.argmax(target_prob, dim=1)
+                return self.ce(logits, hard)
+        return CEWrap()
+    if loss_name == "combined":
+        return CombinedLoss(alpha=alpha)
     raise ValueError(f"Unknown loss: {loss_name}")
 
 
-def train_one_epoch(
-    model: nn.Module,
-    loader: DataLoader,
-    optimizer: torch.optim.Optimizer,
-    loss_fn: nn.Module,
-    device: torch.device,
-    loss_name: str,
-) -> Tuple[float, float]:
-    model.train()
-    meter_loss = AverageMeter("train_loss")
-    meter_acc = AverageMeter("train_acc")
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser("HMS course-ready trainer")
+    p.add_argument("--data_dir", type=str, required=True)
+    p.add_argument("--model", type=str, default="both", choices=["both", "spec", "eeg"])
+    p.add_argument("--fold", type=int, default=0)
+    p.add_argument("--n_folds", type=int, default=5)
+    p.add_argument("--epochs", type=int, default=10)
+    p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--weight_decay", type=float, default=1e-2)
+    p.add_argument("--loss", type=str, default="kldiv", choices=["kldiv", "ce", "combined"])
+    p.add_argument("--alpha", type=float, default=0.8)
+    p.add_argument("--scheduler", type=str, default="cosine", choices=["cosine", "none"])
+    p.add_argument("--warmup_epochs", type=int, default=1)
+    p.add_argument("--num_workers", type=int, default=0)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--amp", action="store_true")
+    p.add_argument("--accum", type=int, default=1)
+    p.add_argument("--clip", type=float, default=1.0)
+    p.add_argument("--target_h", type=int, default=600)
+    p.add_argument("--target_w", type=int, default=400)
+    p.add_argument("--eeg_len", type=int, default=5000)
+    p.add_argument("--output_dir", type=str, default="outputs")
+    p.add_argument("--run_name", type=str, default="")
+    p.add_argument("--pretrained_spec", action="store_true")
+    return p.parse_args()
 
-    for x, y_dist, _sid in loader:
-        x = x.to(device)
-        y_dist = y_dist.to(device)
 
-        logits = model(x)
+def build_model(model_name: str, eeg_in_ch: int, pretrained_spec: bool) -> nn.Module:
+    if model_name == "both":
+        return MultiModalNet(n_classes=6, eeg_in_ch=eeg_in_ch, eeg_feat=256, spec_in_ch=1, spec_feat=256, pretrained_spec=pretrained_spec, drop=0.3)
+    if model_name == "spec":
+        return SpecOnlyNet(n_classes=6, in_ch=1, feat_dim=256, pretrained=pretrained_spec, drop=0.3)
+    if model_name == "eeg":
+        return EEGOnlyNet(n_classes=6, in_ch=eeg_in_ch, feat_dim=256, drop=0.3)
+    raise ValueError(f"Unsupported model: {model_name}")
 
-        if loss_name == "kldiv":
-            log_probs = torch.log_softmax(logits, dim=1)
-            loss = loss_fn(log_probs, y_dist)
-            probs = torch.softmax(logits, dim=1)
-        else:  # ce
-            y_hard = y_dist.argmax(dim=1)
-            loss = loss_fn(logits, y_hard)
-            probs = torch.softmax(logits, dim=1)
 
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
-
-        acc = accuracy_from_probs(probs, y_dist)
-        meter_loss.update(loss.item(), n=x.size(0))
-        meter_acc.update(acc, n=x.size(0))
-
-    return meter_loss.avg, meter_acc.avg
+def forward_model(model: nn.Module, batch: Dict[str, np.ndarray], device: torch.device, model_name: str) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    eeg = torch.from_numpy(batch["eeg"]).to(device)
+    spec = torch.from_numpy(batch["spec"]).to(device)
+    target = torch.from_numpy(batch["target"]).to(device)
+    if model_name == "both":
+        logits = model(eeg, spec)
+    elif model_name == "spec":
+        logits = model(spec)
+    else:
+        logits = model(eeg)
+    return logits, target, spec
 
 
 @torch.no_grad()
-def evaluate(
-    model: nn.Module,
-    loader: DataLoader,
-    loss_fn: nn.Module,
-    device: torch.device,
-    loss_name: str,
-) -> Tuple[float, float]:
+def evaluate(model: nn.Module, loader, device: torch.device, criterion: nn.Module, model_name: str) -> Dict[str, float]:
     model.eval()
-    meter_loss = AverageMeter("val_loss")
-    meter_acc = AverageMeter("val_acc")
-
-    for x, y_dist, _sid in loader:
-        x = x.to(device)
-        y_dist = y_dist.to(device)
-
-        logits = model(x)
-
-        if loss_name == "kldiv":
-            log_probs = torch.log_softmax(logits, dim=1)
-            loss = loss_fn(log_probs, y_dist)
-            probs = torch.softmax(logits, dim=1)
-        else:
-            y_hard = y_dist.argmax(dim=1)
-            loss = loss_fn(logits, y_hard)
-            probs = torch.softmax(logits, dim=1)
-
-        acc = accuracy_from_probs(probs, y_dist)
-        meter_loss.update(loss.item(), n=x.size(0))
-        meter_acc.update(acc, n=x.size(0))
-
-    return meter_loss.avg, meter_acc.avg
+    total_loss = 0.0
+    total_kld = 0.0
+    total_acc = 0.0
+    n = 0
+    for batch in loader:
+        logits, target, _spec = forward_model(model, batch, device, model_name)
+        loss = criterion(logits, target)
+        kld = kl_divergence_from_logits(logits, target)
+        acc = accuracy_from_logits(logits, target)
+        bs = target.size(0)
+        total_loss += float(loss.item()) * bs
+        total_kld += float(kld.item()) * bs
+        total_acc += float(acc) * bs
+        n += bs
+    return {
+        "val_loss": total_loss / max(n, 1),
+        "val_kld": total_kld / max(n, 1),
+        "val_acc": total_acc / max(n, 1),
+    }
 
 
 def main() -> None:
-    p = argparse.ArgumentParser()
-    p.add_argument("--data_dir", type=str, default="", help="Folder containing train.csv and spec_png/")
-    p.add_argument("--synthetic", action="store_true", help="Use synthetic dataset (smoke test).")
-    p.add_argument("--epochs", type=int, default=10)
-    p.add_argument("--batch_size", type=int, default=32)
-    p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--loss", type=str, default="kldiv", choices=["kldiv", "ce"])
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--out_dir", type=str, default="outputs/run")
-    args = p.parse_args()
+    args = parse_args()
+    seed_everything(args.seed)
+    device = get_device()
 
-    set_seed(args.seed)
-    os.makedirs(args.out_dir, exist_ok=True)
+    train_csv = os.path.join(args.data_dir, "train.csv")
+    if not os.path.exists(train_csv):
+        raise FileNotFoundError(f"train.csv not found at: {train_csv}")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    df = pd.read_csv(train_csv)
+    tr_idx, va_idx = build_splits(df, n_folds=args.n_folds, fold=args.fold)
+    paths = HMSPaths(data_dir=args.data_dir)
+    ds_tr = HMSDataset(df, paths, tr_idx, train=True, target_h=args.target_h, target_w=args.target_w, eeg_len=args.eeg_len)
+    ds_va = HMSDataset(df, paths, va_idx, train=False, target_h=args.target_h, target_w=args.target_w, eeg_len=args.eeg_len)
 
-    # dataset
-    if args.synthetic:
-        ds = SyntheticSpectrogramDataset(n=2048)
-        idx_train, idx_val = train_test_split(np.arange(len(ds)), test_size=0.2, random_state=args.seed, shuffle=True)
-        ds_train = Subset(ds, idx_train)
-        ds_val = Subset(ds, idx_val)
+    def collate(batch):
+        out = {}
+        for k in ["eeg", "spec", "target"]:
+            out[k] = np.stack([b[k] for b in batch], axis=0)
+        out["eeg_id"] = [int(b["eeg_id"]) for b in batch]
+        out["spec_id"] = [int(b["spec_id"]) for b in batch]
+        return out
+
+    loader_tr = torch.utils.data.DataLoader(ds_tr, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=(device.type == "cuda"), collate_fn=collate)
+    loader_va = torch.utils.data.DataLoader(ds_va, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=(device.type == "cuda"), collate_fn=collate)
+
+    sample = ds_tr[0]["eeg"]
+    eeg_in_ch = int(sample.shape[0])
+    model = build_model(args.model, eeg_in_ch=eeg_in_ch, pretrained_spec=args.pretrained_spec).to(device)
+    criterion = build_criterion(args.loss, alpha=args.alpha)
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+
+    if args.scheduler == "cosine":
+        total_steps = max(args.epochs * max(len(loader_tr), 1) // max(args.accum, 1), 1)
+        warmup_steps = max(args.warmup_epochs * max(len(loader_tr), 1) // max(args.accum, 1), 1)
+        def lr_lambda(step):
+            if step < warmup_steps:
+                return (step + 1) / max(1, warmup_steps)
+            t = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+            return 0.5 * (1.0 + np.cos(np.pi * min(max(t, 0.0), 1.0)))
+        scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
     else:
-        ds_full = HMSSpectrogramPngDataset(data_dir=args.data_dir, split_csv="train.csv")
-        if "patient_id" in ds_full.df.columns:
-            idx_train, idx_val = stratified_group_split(ds_full.df, group_col="patient_id", frac_val=0.2, seed=args.seed)
-        else:
-            idx_train, idx_val = train_test_split(np.arange(len(ds_full)), test_size=0.2, random_state=args.seed, shuffle=True)
-        ds_train = Subset(ds_full, idx_train)
-        ds_val = Subset(ds_full, idx_val)
+        scheduler = None
 
-    dl_train = DataLoader(ds_train, batch_size=args.batch_size, shuffle=True, num_workers=2, pin_memory=True)
-    dl_val = DataLoader(ds_val, batch_size=args.batch_size, shuffle=False, num_workers=2, pin_memory=True)
-
-    model = SpectrogramResNet(in_ch=1, num_classes=6).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    loss_fn = build_loss(args.loss)
+    scaler = torch.cuda.amp.GradScaler(enabled=(args.amp and device.type == "cuda"))
+    run_name = args.run_name or f'{args.model}_{args.loss}_fold{args.fold}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    out_dir = os.path.join(args.output_dir, run_name)
+    os.makedirs(out_dir, exist_ok=True)
+    save_json(vars(args), os.path.join(out_dir, "config.json"))
 
     history: List[Dict] = []
-    best_val = float("inf")
-    best_path = os.path.join(args.out_dir, "best.pt")
+    best_kld = float("inf")
+    optimizer.zero_grad(set_to_none=True)
+    step_count = 0
 
     for epoch in range(1, args.epochs + 1):
-        tr_loss, tr_acc = train_one_epoch(model, dl_train, optimizer, loss_fn, device, args.loss)
-        va_loss, va_acc = evaluate(model, dl_val, loss_fn, device, args.loss)
+        model.train()
+        pbar = tqdm(loader_tr, desc=f"Epoch {epoch}/{args.epochs}", leave=False)
+        running_loss = 0.0
+        running_acc = 0.0
+        count = 0
+        batches_since_step = 0
 
-        row = {"epoch": epoch, "train_loss": tr_loss, "train_acc": tr_acc, "val_loss": va_loss, "val_acc": va_acc, "lr": args.lr, "loss": args.loss}
+        for step, batch in enumerate(pbar, start=1):
+            logits, target, _spec = forward_model(model, batch, device, args.model)
+            loss = criterion(logits, target) / max(args.accum, 1)
+            acc = accuracy_from_logits(logits.detach(), target)
+
+            scaler.scale(loss).backward()
+            batches_since_step += 1
+
+            should_step = (step % args.accum == 0) or (step == len(loader_tr))
+            if should_step:
+                if args.clip and args.clip > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+                if scheduler is not None:
+                    scheduler.step()
+                step_count += 1
+                batches_since_step = 0
+
+            bs = target.size(0)
+            running_loss += float(loss.item()) * bs * max(args.accum, 1)
+            running_acc += float(acc) * bs
+            count += bs
+            pbar.set_postfix(loss=running_loss / max(count, 1), acc=running_acc / max(count, 1), lr=optimizer.param_groups[0]["lr"])
+
+        val = evaluate(model, loader_va, device, criterion, args.model)
+        row = {
+            "epoch": epoch,
+            "train_loss": running_loss / max(count, 1),
+            "train_acc": running_acc / max(count, 1),
+            "val_loss": val["val_loss"],
+            "val_kld": val["val_kld"],
+            "val_acc": val["val_acc"],
+            "lr": optimizer.param_groups[0]["lr"],
+        }
         history.append(row)
-        print(row)
+        pd.DataFrame(history).to_csv(os.path.join(out_dir, "history.csv"), index=False)
+        plot_training_curves(history, os.path.join(out_dir, "curves.png"))
 
-        if va_loss < best_val:
-            best_val = va_loss
-            torch.save({"model": model.state_dict(), "epoch": epoch, "val_loss": va_loss}, best_path)
+        if row["val_kld"] < best_kld:
+            best_kld = row["val_kld"]
+            torch.save({
+                "model": model.state_dict(),
+                "best_kld": best_kld,
+                "epoch": epoch,
+                "model_name": args.model,
+                "args": vars(args),
+            }, os.path.join(out_dir, "best.pt"))
 
-    save_history_csv(history, os.path.join(args.out_dir, "history.csv"))
-    plot_curves(history, os.path.join(args.out_dir, "curves.png"))
-    print(f"Saved: {best_path}")
+        print(f"[Run {run_name}] epoch={epoch} train_loss={row['train_loss']:.4f} train_acc={row['train_acc']:.4f} val_acc={row['val_acc']:.4f} val_kld={row['val_kld']:.4f}")
+
+    print("Done. Best val_kld:", best_kld)
+    print("Output directory:", out_dir)
 
 
 if __name__ == "__main__":

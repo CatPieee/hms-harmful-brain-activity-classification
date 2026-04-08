@@ -1,106 +1,104 @@
-"""
-src/utils.py
-Utility helpers: seeding, meters, plotting.
-"""
-
-from __future__ import annotations
-
 import csv
+import json
 import os
 import random
-from dataclasses import dataclass
 from typing import Dict, List
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
 
-def set_seed(seed: int = 42) -> None:
+LABELS = ["seizure", "lpd", "gpd", "lrda", "grda", "other"]
+
+
+def seed_everything(seed: int = 42) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = True
 
 
-@dataclass
-class AverageMeter:
-    name: str
-    val: float = 0.0
-    avg: float = 0.0
-    sum: float = 0.0
-    count: int = 0
-
-    def update(self, value: float, n: int = 1) -> None:
-        self.val = float(value)
-        self.sum += float(value) * n
-        self.count += n
-        self.avg = self.sum / max(1, self.count)
+def get_device() -> torch.device:
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def save_history_csv(history: List[Dict], out_csv: str) -> None:
-    os.makedirs(os.path.dirname(out_csv), exist_ok=True)
-    if not history:
+def ensure_dir(path: str) -> None:
+    if path:
+        os.makedirs(path, exist_ok=True)
+
+
+def save_json(obj: Dict, path: str) -> None:
+    ensure_dir(os.path.dirname(path))
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2)
+
+
+def save_csv(rows: List[Dict], path: str) -> None:
+    ensure_dir(os.path.dirname(path))
+    if not rows:
         return
-    keys = list(history[0].keys())
-    with open(out_csv, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=keys)
-        w.writeheader()
-        for row in history:
-            w.writerow(row)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
-def plot_curves(history: List[Dict], out_png: str) -> None:
-    """
-    Plots:
-    - train_loss
-    - train_acc
-    - val_acc
-    """
-    import matplotlib.pyplot as plt
+def plot_training_curves(history: List[Dict], out_png: str) -> None:
+    ensure_dir(os.path.dirname(out_png))
+    epochs = [row["epoch"] for row in history]
+    train_loss = [row["train_loss"] for row in history]
+    train_acc = [row["train_acc"] for row in history]
+    val_acc = [row["val_acc"] for row in history]
 
-    os.makedirs(os.path.dirname(out_png), exist_ok=True)
-    epochs = [h["epoch"] for h in history]
-    train_loss = [h["train_loss"] for h in history]
-    train_acc = [h["train_acc"] for h in history]
-    val_acc = [h["val_acc"] for h in history]
-
-    plt.figure(figsize=(7, 4))
-    plt.plot(epochs, train_loss, label="train_loss")
-    plt.plot(epochs, train_acc, label="train_acc")
-    plt.plot(epochs, val_acc, label="val_acc")
+    plt.figure(figsize=(8, 4.8))
+    plt.plot(epochs, train_loss, label="Train Loss")
+    plt.plot(epochs, train_acc, label="Train Accuracy")
+    plt.plot(epochs, val_acc, label="Validation Accuracy")
     plt.xlabel("Epoch")
+    plt.ylabel("Value")
+    plt.title("Training Loss / Training Accuracy / Validation Accuracy")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(out_png, dpi=200)
+    plt.savefig(out_png, dpi=220)
     plt.close()
 
 
-def save_first100_table(
-    rows: List[Dict],
-    out_png: str,
-    max_rows: int = 100,
-) -> None:
-    """
-    Create a simple figure/table for the first N predictions required by the course.
-    rows: list of dicts with keys: index, y_true, y_pred, sample_id
-    """
-    import matplotlib.pyplot as plt
-    import pandas as pd
-
-    os.makedirs(os.path.dirname(out_png), exist_ok=True)
-    df = pd.DataFrame(rows).head(max_rows)
-
-    fig, ax = plt.subplots(figsize=(10, 18))
-    ax.axis("off")
-    tbl = ax.table(
-        cellText=df.values,
-        colLabels=df.columns,
-        loc="center",
-        cellLoc="left",
-    )
-    tbl.auto_set_font_size(False)
-    tbl.set_fontsize(8)
-    tbl.scale(1, 1.2)
+def plot_metric_overlay(run_to_history: Dict[str, List[Dict]], metric: str, out_png: str, title: str, ylabel: str) -> None:
+    ensure_dir(os.path.dirname(out_png))
+    plt.figure(figsize=(8.5, 5.2))
+    for run_name, history in run_to_history.items():
+        epochs = [row["epoch"] for row in history]
+        values = [row[metric] for row in history]
+        plt.plot(epochs, values, label=run_name)
+    plt.xlabel("Epoch")
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.legend()
     plt.tight_layout()
-    plt.savefig(out_png, dpi=200)
+    plt.savefig(out_png, dpi=220)
     plt.close()
+
+
+def plot_first100_grid(spec_images: np.ndarray, y_true: List[int], y_pred: List[int], out_png: str) -> None:
+    ensure_dir(os.path.dirname(out_png))
+    n = min(100, len(spec_images))
+    cols = 10
+    rows = int(np.ceil(n / cols))
+    plt.figure(figsize=(18, 18))
+    for i in range(n):
+        ax = plt.subplot(rows, cols, i + 1)
+        ax.imshow(spec_images[i], cmap="gray", aspect="auto")
+        ax.set_title(f"T:{LABELS[y_true[i]]}\nP:{LABELS[y_pred[i]]}", fontsize=6)
+        ax.axis("off")
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=220)
+    plt.close()
+
+
+def load_history_csv(path: str) -> List[Dict]:
+    import pandas as pd
+    df = pd.read_csv(path)
+    return df.to_dict(orient="records")
