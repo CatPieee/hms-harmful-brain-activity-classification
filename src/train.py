@@ -117,7 +117,17 @@ def evaluate(model: nn.Module, loader, device: torch.device, criterion: nn.Modul
     total_acc = 0.0
     n = 0
     for batch in loader:
+        # Pre-forward NaN check for validation as well
+        if np.isnan(batch["eeg"]).any() or np.isnan(batch["spec"]).any():
+            continue
+
         logits, target, _spec = forward_model(model, batch, device, model_name)
+        
+        # If output is NaN, it means the model weights/stats are already poisoned
+        if torch.isnan(logits).any():
+            print("[CRITICAL] Model output NaN detected during evaluation! Model might be poisoned.")
+            continue
+
         loss = criterion(logits, target)
 
         # Skip validation batches with NaN/Inf values to ensure clean metrics
@@ -207,10 +217,17 @@ def main() -> None:
         batches_since_step = 0
 
         for step, batch in enumerate(pbar, start=1):
+            # --- Numerical Circuit Breaker (Pre-forward) ---
+            # Check for NaNs in input data before they enter the model
+            # This prevents BatchNorm running stats from being poisoned
+            if np.isnan(batch["eeg"]).any() or np.isnan(batch["spec"]).any() or np.isnan(batch["target"]).any():
+                print(f"\n[SKIP] Input data contains NaN at step {step}! Skipping this batch.")
+                continue
+
             logits, target, _spec = forward_model(model, batch, device, args.model)
             loss = criterion(logits, target) / max(args.accum, 1)
 
-            # --- Numerical Circuit Breaker ---
+            # --- Numerical Circuit Breaker (Post-forward) ---
             if torch.isnan(loss) or torch.isinf(loss):
                 print(f"\n[WARNING] NaN/Inf loss detected at step {step}! Skipping this batch.")
                 print(f"Batch eeg_ids: {batch.get('eeg_id', 'unknown')}")
