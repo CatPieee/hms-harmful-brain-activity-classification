@@ -14,7 +14,21 @@ set -euo pipefail
 
 mkdir -p logs
 
-source .venv/bin/activate
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+if [ -n "${ENV_ACTIVATE:-}" ]; then
+  source "$ENV_ACTIVATE"
+elif [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
+  source "$PROJECT_ROOT/.venv/bin/activate"
+else
+  echo "[ERROR] 未找到虚拟环境激活脚本。"
+  echo "  - 期望路径: $PROJECT_ROOT/.venv/bin/activate"
+  echo "  - 或者提交前设置: ENV_ACTIVATE=/path/to/activate"
+  exit 2
+fi
+
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
 
 DATA_DIR="${DATA_DIR:-data/hms}"
 
@@ -22,7 +36,17 @@ echo "========================================"
 echo "任务开始时间: $(date)"
 echo "使用的 GPU: $CUDA_VISIBLE_DEVICES"
 echo "数据目录: $DATA_DIR"
+echo "项目目录: $PROJECT_ROOT"
+echo "Python 路径: $(which python)"
 echo "========================================"
+
+if [ ! -d "$PROJECT_ROOT/src/data" ] && [ ! -f "$PROJECT_ROOT/src/data.py" ]; then
+  echo "[ERROR] 未找到数据模块: $PROJECT_ROOT/src/data (或 src/data.py)"
+  echo "请确认你在服务器上的项目目录里包含 src/data/__init__.py 和 src/data/hms_dataset.py"
+  echo "当前 $PROJECT_ROOT/src 目录内容："
+  ls -la "$PROJECT_ROOT/src"
+  exit 3
+fi
 
 # 3. 执行训练 (以多模态模型为例)
 python -m src.train \

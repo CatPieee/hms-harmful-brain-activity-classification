@@ -39,6 +39,14 @@ echo "输出目录: $OUTPUT_DIR"
 echo "Python 路径: $(which python)"
 echo "========================================"
 
+if [ ! -d "$PROJECT_ROOT/src/data" ] && [ ! -f "$PROJECT_ROOT/src/data.py" ]; then
+  echo "[ERROR] 未找到数据模块: $PROJECT_ROOT/src/data (或 src/data.py)"
+  echo "请确认你在服务器上的项目目录里包含 src/data/__init__.py 和 src/data/hms_dataset.py"
+  echo "当前 $PROJECT_ROOT/src 目录内容："
+  ls -la "$PROJECT_ROOT/src"
+  exit 3
+fi
+
 # 2. 运行课程要求的全系列实验
 # 包括: Baseline, Loss 对比, Learning Rate Sweep, Batch Size Sweep, First 100 预测可视化
 python scripts/run_course_experiments.py \
