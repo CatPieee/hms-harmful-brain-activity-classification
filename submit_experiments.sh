@@ -14,7 +14,12 @@ set -euo pipefail
 
 mkdir -p logs
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# --- 核心修复：SLURM 作业中定位项目根目录 ---
+if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+  PROJECT_ROOT="$SLURM_SUBMIT_DIR"
+else
+  PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 cd "$PROJECT_ROOT"
 
 if [ -n "${ENV_ACTIVATE:-}" ]; then

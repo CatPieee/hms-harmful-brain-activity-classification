@@ -4,7 +4,7 @@
 #SBATCH --qos=qos-normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH --mem=4G                     # 建议增加内存，训练时数据加载较多
+#SBATCH --mem=16G                     # 增加内存，4G 对训练太小了
 #SBATCH --cpus-per-task=4             # 增加 CPU 核心以加速数据加载 (num_workers)
 #SBATCH --time=12:00:00                
 #SBATCH --output=logs/train_%j.out
@@ -14,7 +14,14 @@ set -euo pipefail
 
 mkdir -p logs
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# --- 核心修复：SLURM 作业中定位项目根目录 ---
+# 优先使用 SLURM_SUBMIT_DIR (用户执行 sbatch 的目录)
+# 否则尝试使用脚本所在目录 (注意：有些集群会拷贝脚本到 spool 目录，此时 BASH_SOURCE 不可靠)
+if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+  PROJECT_ROOT="$SLURM_SUBMIT_DIR"
+else
+  PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 cd "$PROJECT_ROOT"
 
 if [ -n "${ENV_ACTIVATE:-}" ]; then
