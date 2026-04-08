@@ -4,7 +4,7 @@
 #SBATCH --qos=qos-normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH --mem=16G                     # 建议增加内存，训练时数据加载较多
+#SBATCH --mem=4G                     # 建议增加内存，训练时数据加载较多
 #SBATCH --cpus-per-task=4             # 增加 CPU 核心以加速数据加载 (num_workers)
 #SBATCH --time=12:00:00                
 #SBATCH --output=logs/train_%j.out
@@ -23,7 +23,7 @@ echo "数据目录: $DATA_DIR"
 echo "========================================"
 
 # 3. 执行训练 (以多模态模型为例)
-python -m src.train \
+python src/train.py \
     --data_dir $DATA_DIR \
     --model both \
     --loss kldiv \
