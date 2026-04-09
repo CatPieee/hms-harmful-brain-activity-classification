@@ -261,13 +261,18 @@ def main() -> None:
         val = evaluate(model, loader_va, device, criterion, args.model)
         row = {
             "epoch": epoch,
-            "train_loss": running_loss / max(count, 1),
-            "train_acc": running_acc / max(count, 1),
-            "val_loss": val["val_loss"],
-            "val_kld": val["val_kld"],
-            "val_acc": val["val_acc"],
-            "lr": optimizer.param_groups[0]["lr"],
+            "train_loss": float(running_loss / max(count, 1)),
+            "train_acc": float(running_acc / max(count, 1)),
+            "val_loss": float(val["val_loss"]),
+            "val_kld": float(val["val_kld"]),
+            "val_acc": float(val["val_acc"]),
+            "lr": float(optimizer.param_groups[0]["lr"]),
         }
+        # Replace NaN with 0 for CSV logging
+        for k in ["train_loss", "train_acc", "val_loss", "val_kld", "val_acc"]:
+            if np.isnan(row[k]):
+                row[k] = 0.0
+
         history.append(row)
         pd.DataFrame(history).to_csv(os.path.join(out_dir, "history.csv"), index=False)
         plot_training_curves(history, os.path.join(out_dir, "curves.png"))
