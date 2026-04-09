@@ -54,33 +54,30 @@ def plot_training_curves(history: List[Dict], out_png: str) -> None:
     train_acc = [row["train_acc"] for row in history]
     val_acc = [row["val_acc"] for row in history]
 
-    fig, ax1 = plt.subplots(figsize=(10, 6))
+    # Create a figure with two subplots side-by-side
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
-    # Left Y-axis: Loss
-    color_loss = 'tab:red'
+    # Left Subplot: Loss
+    ax1.plot(epochs, train_loss, label="Train Loss", color='tab:red', linestyle='--', marker='o')
+    ax1.plot(epochs, val_loss, label="Val Loss", color='darkred', linestyle='-', marker='s')
     ax1.set_xlabel('Epoch')
-    ax1.set_ylabel('Loss (KLDiv)', color=color_loss)
-    ln1 = ax1.plot(epochs, train_loss, label="Train Loss", color=color_loss, linestyle='--', marker='o')
-    ln2 = ax1.plot(epochs, val_loss, label="Val Loss", color='darkred', linestyle='-', marker='s')
-    ax1.tick_params(axis='y', labelcolor=color_loss)
+    ax1.set_ylabel('Loss (KLDiv)')
+    ax1.set_title('Training & Validation Loss')
+    ax1.legend()
     ax1.grid(True, linestyle=':', alpha=0.6)
 
-    # Right Y-axis: Accuracy
-    ax2 = ax1.twinx()
-    color_acc = 'tab:blue'
-    ax2.set_ylabel('Accuracy', color=color_acc)
-    ln3 = ax2.plot(epochs, train_acc, label="Train Acc", color=color_acc, linestyle='--', marker='^')
-    ln4 = ax2.plot(epochs, val_acc, label="Val Acc", color='darkblue', linestyle='-', marker='v')
-    ax2.tick_params(axis='y', labelcolor=color_acc)
-    ax2.set_ylim(0, 1.0) # Accuracy is between 0 and 1
+    # Right Subplot: Accuracy
+    ax2.plot(epochs, train_acc, label="Train Acc", color='tab:blue', linestyle='--', marker='^')
+    ax2.plot(epochs, val_acc, label="Val Acc", color='darkblue', linestyle='-', marker='v')
+    ax2.set_xlabel('Epoch')
+    ax2.set_ylabel('Accuracy')
+    ax2.set_title('Training & Validation Accuracy')
+    ax2.set_ylim(0, 1.0)
+    ax2.legend()
+    ax2.grid(True, linestyle=':', alpha=0.6)
 
-    # Combined Legend
-    lns = ln1 + ln2 + ln3 + ln4
-    labs = [l.get_label() for l in lns]
-    ax1.legend(lns, labs, loc='upper left', frameon=True, shadow=True)
-
-    plt.title("HMS Harmful Brain Activity: Training & Validation Metrics")
-    fig.tight_layout()
+    plt.suptitle("HMS Harmful Brain Activity: Model Performance", fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(out_png, dpi=220)
     plt.close()
 
