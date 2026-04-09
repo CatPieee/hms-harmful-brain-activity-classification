@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=hms_train
-#SBATCH --partition=gpu-a100
+#SBATCH --partition=gpu-h100
 #SBATCH --qos=qos-normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
