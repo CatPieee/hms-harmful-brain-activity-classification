@@ -2,6 +2,7 @@ __pycache__/
 .venv/
 *.pyc
 # outputs/
+logs/
 /data/
 !/src/data/
 .DS_Store
