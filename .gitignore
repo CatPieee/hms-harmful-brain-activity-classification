@@ -6,3 +6,4 @@ logs/
 /data/
 !/src/data/
 .DS_Store
+*.pt
