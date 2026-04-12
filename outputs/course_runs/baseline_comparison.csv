@@ -1,0 +1,4 @@
+Model,Best Val Loss,Best Val Accuracy
+baseline_eeg,0.9149,0.5123
+baseline_spec,0.7533,0.6456
+baseline_both,0.7083,0.6350

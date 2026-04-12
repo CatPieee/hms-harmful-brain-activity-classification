@@ -1,0 +1,4 @@
+EEGResNet1D,SpectrogramEfficientNet,GatedFusion,Val Loss,Val Accuracy
+✓,,,0.9150,0.5123
+,✓,,0.7534,0.6456
+✓,✓,✓,0.7083,0.6350
