@@ -27,7 +27,8 @@ def _find_vote_cols(df: pd.DataFrame) -> List[str]:
     vote_cols = [c for c in df.columns if c.endswith("_vote")]
     if len(vote_cols) >= 6:
         return vote_cols[:6]
-    raise ValueError("Could not find vote columns in train.csv.")
+    # Return empty list if no vote columns found (for test set)
+    return []
 
 
 def _pad_crop_h(arr: np.ndarray, target_h: int) -> np.ndarray:
@@ -116,7 +117,7 @@ def build_splits(df: pd.DataFrame, val_size: float = 0.2, seed: int = 42) -> Tup
 class HMSPaths:
     data_dir: str
     spec_png_dirname: str = "spec_png"
-    train_eegs_dirname: str = "train_eegs"
+    eeg_dirname: str = "train_eegs"  # default to train_eegs
     eeg_cache_dirname: str = "eeg_npy"
 
 
@@ -124,23 +125,25 @@ class HMSDataset:
     """
     Multimodal dataset returning (eeg, spec, target_prob).
     Expects:
-      - train.csv in data_dir
-      - spec_png/<spectrogram_id>.png  (recommended)
-      - train_eegs/<eeg_id>.parquet
-    Optionally caches EEG as .npy in eeg_npy/ to speed up Windows training.
+      - csv in data_dir (train.csv or test.csv)
+      - spec_png/<spectrogram_id>.png
+      - eeg_dirname/<eeg_id>.parquet
     """
     def __init__(
         self,
         df: pd.DataFrame,
         paths: HMSPaths,
-        indices: np.ndarray,
+        indices: Optional[np.ndarray] = None,
         train: bool = True,
         target_h: int = 600,
         target_w: int = 400,
         eeg_len: int = 5000,
         normalize_eeg: bool = True,
     ):
-        self.df = df.iloc[indices].reset_index(drop=True)
+        if indices is not None:
+            self.df = df.iloc[indices].reset_index(drop=True)
+        else:
+            self.df = df.reset_index(drop=True)
         self.paths = paths
         self.train = train
         self.target_h = target_h
@@ -150,7 +153,7 @@ class HMSDataset:
         self.vote_cols = _find_vote_cols(df)
 
         self.spec_dir = os.path.join(paths.data_dir, paths.spec_png_dirname)
-        self.eeg_dir = os.path.join(paths.data_dir, paths.train_eegs_dirname)
+        self.eeg_dir = os.path.join(paths.data_dir, paths.eeg_dirname)
         self.eeg_cache = os.path.join(paths.data_dir, paths.eeg_cache_dirname)
         os.makedirs(self.eeg_cache, exist_ok=True)
 
@@ -158,6 +161,9 @@ class HMSDataset:
         return len(self.df)
 
     def _get_target(self, row: pd.Series) -> np.ndarray:
+        if not self.vote_cols:
+            # For test set, return placeholder (all zeros)
+            return np.zeros(6, dtype=np.float32)
         votes = row[self.vote_cols].to_numpy(dtype=np.float32)
         votes = np.nan_to_num(votes, nan=0.0)  # Robust against NaNs in train.csv
         s = votes.sum()
