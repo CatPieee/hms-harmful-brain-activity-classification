@@ -2,7 +2,7 @@
   "data_dir": "data/hms",
   "model": "both",
   "val_size": 0.2,
-  "epochs": 10,
+  "epochs": 1,
   "batch_size": 16,
   "lr": 0.001,
   "weight_decay": 0.01,
@@ -20,5 +20,5 @@
   "eeg_len": 5000,
   "output_dir": "outputs/course_runs",
   "run_name": "baseline_both",
-  "pretrained_spec": true
+  "pretrained_spec": false
 }

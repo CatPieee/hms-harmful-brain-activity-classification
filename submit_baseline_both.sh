@@ -1,14 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=hms_baseline_both
-#SBATCH --partition=gpu-h100
+#SBATCH --partition=gpu-rtx4090
 #SBATCH --qos=qos-normal
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH --mem=16G                     
-#SBATCH --cpus-per-task=4             
-#SBATCH --time=00:30:00                # Reduced time for quick training
-#SBATCH --output=logs/baseline_both_%j.out
-#SBATCH --error=logs/baseline_both_%j.err
+#SBATCH --mem=4G                     # 增加内存，4G 对训练太小了
+#SBATCH --cpus-per-task=2             # 减少 CPU 核心以适应 4G 内存
+#SBATCH --time=2:00:00                
+#SBATCH --output=logs/test_%j.out
+#SBATCH --error=logs/test_%j.err
 
 set -euo pipefail
 mkdir -p logs
